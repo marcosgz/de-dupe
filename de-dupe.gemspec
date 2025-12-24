@@ -26,7 +26,6 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = ">= 2.7"
 
   if spec.respond_to?(:metadata)
-    spec.metadata["allowed_push_host"] = "https://rubygems.pkg.github.com/marcosgz"
     spec.metadata["homepage_uri"] = spec.homepage
     spec.metadata["source_code_uri"] = "https://github.com/marcosgz/de-dupe"
     spec.metadata["changelog_uri"] = "https://github.com/marcosgz/de-dupe/blob/main/CHANGELOG.md"
