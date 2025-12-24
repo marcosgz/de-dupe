@@ -6,6 +6,6 @@
 /pkg/
 /spec/reports/
 /tmp/
-
+/de-dupe-*.gem
 # rspec failure tracking
 .rspec_status
