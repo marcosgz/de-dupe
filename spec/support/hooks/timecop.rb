@@ -15,3 +15,7 @@ module Hooks
     end
   end
 end
+
+RSpec.configure do |config|
+  config.include Hooks::Timecop
+end

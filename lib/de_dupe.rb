@@ -28,12 +28,26 @@ module DeDupe
     config
   end
 
-  def redis_pool
-    @redis_pool ||= RedisPool.new(config.redis)
+  def acquire(*keys, **kwargs, &block)
+    id = keys.pop
+    if keys.empty?
+      raise Error, <<~ERROR.strip
+        You must provide the namespace + the identifier for the lock.
+
+        Example:
+        DeDupe.acquire("long-running-job", "1234567890", ttl: 50) do
+          # code to execute
+        end
+      ERROR
+    end
+
+    namespace = LockKey.new(*keys).to_s
+    lock = Lock.new(lock_key: namespace, lock_id: id, **kwargs)
+    lock.with_lock(&block)
   end
 
-  def clear_redis_pool!
-    @redis_pool = nil
+  def redis_pool
+    @redis_pool ||= RedisPool.new(config.redis)
   end
 
   def flush_all

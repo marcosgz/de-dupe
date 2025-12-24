@@ -1,143 +1,64 @@
 # frozen_string_literal: true
 
 module DeDupe
-  # Class Lock provides access to redis "sorted set" used to control unique jobs
+  # Distributed deduplication lock using Redis Sorted Set.
+  # Allows multiple independent locks under the same namespace (lock_key).
   class Lock
-    attr_reader :lock_key, :lock_id, :ttl
+    extend Forwardable
+    def_delegators :dataset, :lock_key, :ttl
 
-    class << self
-      # Initialize a Lock object from hash
-      #
-      # @param value [Hash] Hash with lock properties
-      # @return [DeDupe::Lock, nil]
-      def coerce(value)
-        return unless value.is_a?(Hash)
+    attr_reader :dataset, :lock_id
 
-        lock_key = value[:lkey] || value["lkey"] || value[:lock_key] || value["lock_key"]
-        lock_id = value[:lid] || value["lid"] || value[:lock_id] || value["lock_id"]
-        ttl = value[:ttl] || value["ttl"]
-        return if [lock_key, lock_id, ttl].any?(&:nil?)
-
-        new(lock_key: lock_key, lock_id: lock_id, ttl: ttl)
-      end
-
-      # Remove expired locks from redis "sorted set"
-      #
-      # @param [String] lock_key It's the uniq string used to group similar jobs
-      def flush_expired_members(lock_key, redis: nil)
-        return unless lock_key
-
-        caller = ->(redis) { redis.zremrangebyscore(lock_key, "-inf", "(#{now}") }
-
-        if redis
-          caller.call(redis)
-        else
-          DeDupe.redis_pool.with { |conn| caller.call(conn) }
-        end
-      end
-
-      # Remove all locks from redis "sorted set"
-      #
-      # @param [String] lock_key It's the uniq string used to group similar jobs
-      def flush(lock_key, redis: nil)
-        return unless lock_key
-
-        caller = ->(conn) { conn.del(lock_key) }
-
-        if redis
-          caller.call(redis)
-        else
-          DeDupe.redis_pool.with { |conn| caller.call(conn) }
-        end
-      end
-
-      # Number of locks
-      #
-      # @param lock_key [String] It's the uniq string used to group similar jobs
-      # @option [Number] from The begin of set. Default to 0
-      # @option [Number] to The end of set. Default to the timestamp of 1 week from now
-      # @return Number the amount of entries that within lock_key
-      def count(lock_key, from: 0, to: nil, redis: nil)
-        to ||= Time.now.to_f + DeDupe.config.expires_in.to_i
-        caller = ->(conn) { conn.zcount(lock_key, from, to) }
-
-        if redis
-          caller.call(redis)
-        else
-          DeDupe.redis_pool.with { |conn| caller.call(conn) }
-        end
-      end
+    # @param lock_key [String] Namespace/group for similar jobs (e.g., "import:users")
+    # @param lock_id  [String] Unique identifier within the namespace (e.g., digest)
+    # @param ttl      [Integer, nil] Lock duration in seconds (defaults to config.expires_in)
+    def initialize(lock_key:, lock_id:, ttl: nil)
+      @lock_id = lock_id.to_s
+      @dataset = Dataset.new(lock_key, ttl: ttl)
     end
 
-    # @param :lock_key [String] It's the uniq string used to group similar jobs
-    # @param :lock_id [String] The uniq job id
-    # @param :ttl [Float] The timestamp related lifietime of the lock before being discarded.
-    def initialize(lock_key:, lock_id:, ttl:)
-      @lock_key = lock_key
-      @lock_id = lock_id
-      @ttl = ttl
+    def acquire
+      dataset.acquire(lock_id)
     end
+    alias_method :lock, :acquire
 
-    def to_hash
-      {
-        "ttl" => ttl,
-        "lkey" => lock_key&.to_s,
-        "lid" => lock_id&.to_s
-      }
+    def release
+      dataset.release(lock_id)
     end
+    alias_method :unlock, :release
 
-    # @return [Float] A float timestamp of current time
-    def self.now
-      Time.now.to_f
-    end
-
-    # Remove lock_id lock from redis
-    # @return [Boolean] Returns true when it"s locked or false when there is no lock
-    def unlock
-      redis_pool.with do |conn|
-        conn.zrem(lock_key, lock_id)
-      end
-    end
-
-    # Adds lock_id lock to redis
-    # @return [Boolean] Returns true when it"s a fresh lock or false when lock already exists
-    def lock
-      redis_pool.with do |conn|
-        conn.zadd(lock_key, ttl, lock_id)
-      end
-    end
-
-    # Check if the lock_id lock exist
-    # @return [Boolean] true or false when lock exist or not
     def locked?
-      locked = false
-
       redis_pool.with do |conn|
-        timestamp = conn.zscore(lock_key, lock_id)
-        return false unless timestamp
+        score = conn.zscore(lock_key, lock_id)
+        return false unless score
 
-        locked = timestamp >= now
-        self.class.flush_expired_members(lock_key, redis: conn)
+        score.to_f > now
       end
-
-      locked
     end
 
-    def eql?(other)
-      return false unless other.is_a?(self.class)
+    def with_lock(&block)
+      return if locked?
+      return unless acquire
 
-      [lock_key, lock_id, ttl] == [other.lock_key, other.lock_id, other.ttl]
+      begin
+        yield
+      ensure
+        release
+      end
     end
-    alias_method :==, :eql?
 
-    protected
-
-    def now
-      self.class.now
-    end
+    private
 
     def redis_pool
       DeDupe.redis_pool
+    end
+
+    def expiration_score
+      now(append_seconds: ttl)
+    end
+
+    def now(append_seconds: 0)
+      Time.now.to_f + append_seconds
     end
   end
 end
