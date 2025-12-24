@@ -8,8 +8,19 @@ Gem::Specification.new do |spec|
   spec.authors = ["Marcos G. Zimmermann"]
   spec.email = ["mgzmaster@gmail.com"]
 
-  spec.summary = "DeDupe"
-  spec.description = "DeDupe"
+  spec.summary = "Distributed deduplication and locking using Redis Sorted Sets"
+  spec.description = <<~DESC
+    DeDupe is a Ruby gem for distributed deduplication and locking using Redis Sorted Sets.
+    It provides a simple and efficient way to prevent duplicate execution of tasks across
+    multiple processes or servers, with automatic TTL-based expiration and cleanup.
+
+    Features:
+    - Distributed locking across multiple processes/servers
+    - TTL-based automatic expiration
+    - Automatic cleanup of expired entries
+    - Multiple ID management within namespaces
+    - Simple API with block support
+  DESC
   spec.homepage = "https://github.com/marcosgz/de-dupe"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 2.7"
