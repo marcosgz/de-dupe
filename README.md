@@ -134,6 +134,10 @@ end
 locked = dataset.locked_members("user-1", "user-2", "user-3")
 # => ["user-1", "user-2", "user-3"]
 
+# Check the size of the dataset
+size = dataset.size
+# => 3
+
 # Check which IDs are unlocked
 unlocked = dataset.unlocked_members("user-1", "user-2", "user-3")
 # => []
@@ -151,6 +155,11 @@ dataset.flush
 
 # Manually clean up expired entries
 dataset.flush_expired_members
+
+# Iterate over all members
+dataset.members do |member_id|
+  puts "Processing: #{member_id}"
+end
 ```
 
 ## API Reference
@@ -224,6 +233,10 @@ Return array of IDs that are currently locked (not expired).
 
 Return array of IDs that are unlocked (don't exist or expired).
 
+#### `size`
+
+Return the number of entries in the dataset.
+
 #### `flush`
 
 Remove all entries from the dataset.
@@ -231,6 +244,14 @@ Remove all entries from the dataset.
 #### `flush_expired_members`
 
 Remove all expired entries from the dataset (automatically called during `acquire`).
+
+#### `members(&block)`
+
+Iterate over all non-expired members in the dataset. Automatically flushes expired members before iterating.
+
+- Yields each member to the block
+- Returns an enumerator if no block is given
+- Only includes non-expired members
 
 ## Examples
 

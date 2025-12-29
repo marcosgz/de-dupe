@@ -74,6 +74,23 @@ module DeDupe
       end
     end
 
+    def size(flush_expired: true)
+      flush_expired_members if flush_expired
+      redis_pool.with do |conn|
+        conn.zcard(lock_key)
+      end
+    end
+
+    def members(&block)
+      flush_expired_members
+      members = redis_pool.with do |conn|
+        conn.zrange(lock_key, 0, -1, with_scores: false)
+      end
+      return members.to_enum unless block
+
+      members.each(&block)
+    end
+
     def flush
       redis_pool.with do |conn|
         conn.del(lock_key) > 0
