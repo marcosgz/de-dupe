@@ -316,6 +316,122 @@ RSpec.describe DeDupe::Dataset, freeze_at: [2025, 12, 23, 22, 24, 40] do
     end
   end
 
+  describe "#size" do
+    it "returns 0 when dataset is empty" do
+      expect(dataset.size).to eq(0)
+    end
+
+    it "returns the number of entries in the dataset" do
+      dataset.acquire(first_id)
+      expect(dataset.size).to eq(1)
+
+      dataset.acquire(second_id, third_id)
+      expect(dataset.size).to eq(3)
+    end
+
+    it "flushes expired members by default" do
+      dataset.acquire(first_id, second_id)
+      expect(dataset.size).to eq(2)
+
+      travel_to = Time.at(Time.now.to_f + ttl + 1)
+      Timecop.travel(travel_to) do
+        expect(dataset.size).to eq(0)
+      end
+    end
+
+    it "does not flush expired members when flush_expired is false" do
+      dataset.acquire(first_id, second_id)
+      expect(dataset.size).to eq(2)
+
+      travel_to = Time.at(Time.now.to_f + ttl + 1)
+      Timecop.travel(travel_to) do
+        expect(dataset.size(flush_expired: false)).to eq(2)
+        expect(dataset.size(flush_expired: true)).to eq(0)
+      end
+    end
+
+    it "only counts non-expired entries after flushing" do
+      dataset.acquire(first_id, second_id)
+      new_dataset = described_class.new(lock_key, ttl: ttl + HOUR_IN_SECONDS)
+      new_dataset.acquire(third_id)
+
+      expect(dataset.size).to eq(3)
+
+      travel_to = Time.at(Time.now.to_f + ttl + 1)
+      Timecop.travel(travel_to) do
+        expect(dataset.size).to eq(1)
+      end
+    end
+  end
+
+  describe "#members" do
+    it "yields nothing when dataset is empty" do
+      yielded = []
+      dataset.members { |member| yielded << member }
+      expect(yielded).to eq([])
+    end
+
+    it "yields a single member" do
+      dataset.acquire(first_id)
+      yielded = []
+      dataset.members { |member| yielded << member }
+      expect(yielded).to contain_exactly(first_id)
+    end
+
+    it "yields all members in the dataset" do
+      dataset.acquire(first_id, second_id, third_id)
+      yielded = []
+      dataset.members { |member| yielded << member }
+      expect(yielded).to contain_exactly(first_id, second_id, third_id)
+    end
+
+    it "flushes expired members before iterating" do
+      dataset.acquire(first_id, second_id)
+      expired_score = Time.now.to_f - 100
+      DeDupe.redis_pool.with do |conn|
+        conn.zadd(lock_key, expired_score, "expired_id")
+        expect(conn.zcount(lock_key, "-inf", "+inf")).to eq(3)
+      end
+
+      yielded = []
+      dataset.members { |member| yielded << member }
+      expect(yielded).to contain_exactly(first_id, second_id)
+      expect(yielded).not_to include("expired_id")
+    end
+
+    it "does not yield expired members" do
+      dataset.acquire(first_id, second_id)
+      expect(dataset.size).to eq(2)
+
+      travel_to = Time.at(Time.now.to_f + ttl + 1)
+      Timecop.travel(travel_to) do
+        yielded = []
+        dataset.members { |member| yielded << member }
+        expect(yielded).to eq([])
+      end
+    end
+
+    it "yields only non-expired members when some are expired" do
+      dataset.acquire(first_id)
+      long_ttl_dataset = described_class.new(lock_key, ttl: ttl + HOUR_IN_SECONDS)
+      long_ttl_dataset.acquire(second_id)
+
+      travel_to = Time.at(Time.now.to_f + ttl + 1)
+      Timecop.travel(travel_to) do
+        yielded = []
+        dataset.members { |member| yielded << member }
+        expect(yielded).to contain_exactly(second_id)
+      end
+    end
+
+    it "returns an enumerator when no block is given" do
+      dataset.acquire(first_id, second_id)
+      enumerator = dataset.members
+      expect(enumerator).to be_a(Enumerator)
+      expect(enumerator.to_a).to contain_exactly(first_id, second_id)
+    end
+  end
+
   describe "#flush_expired_members" do
     it "returns false when lock_key does not exist" do
       DeDupe.redis_pool.with do |conn|
