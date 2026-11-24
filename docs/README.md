@@ -54,4 +54,4 @@ The design scales to tens of thousands of active locks per namespace with sub-mi
 
 ## License
 
-MIT.
+GPL-3.0-or-later.
