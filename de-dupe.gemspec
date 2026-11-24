@@ -15,7 +15,7 @@ Gem::Specification.new do |spec|
     multiple processes or servers, with automatic TTL-based expiration and cleanup.
   DESC
   spec.homepage = "https://github.com/marcosgz/de-dupe"
-  spec.license = "MIT"
+  spec.license = "GPL-3.0-or-later"
   spec.required_ruby_version = ">= 2.7"
 
   if spec.respond_to?(:metadata)
